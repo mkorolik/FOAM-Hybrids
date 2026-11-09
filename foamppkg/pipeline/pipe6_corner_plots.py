@@ -1,0 +1,55 @@
+"""Make the correlation plots of the grid for the different modelling methodologies."""
+
+import glob
+import multiprocessing
+from functools import partial
+from pathlib import Path
+
+import matplotlib
+
+from foamppkg import plot_tools
+from foamppkg.pipeline.pipeline_config import config
+
+
+def run(config):
+
+    ################################################################################
+    if config.n_sigma_box != None:
+        directory_prefix = f"{config.n_sigma_box}sigmaBox_"
+    else:
+        directory_prefix = ""
+
+    files = glob.glob(f"meritvalues/*[!error].hdf")
+
+    args = []
+    for file in files:
+        Path_file = Path(file)
+        title = Path_file.stem
+        config.logger.debug(f"file: {title}")
+        file_error_ellipse = Path_file.with_stem(f"{Path_file.stem}_2sigma-error-ellipse")
+        file_error_ellipse = str(file_error_ellipse).replace("meritvalues", f"{directory_prefix}meritvalues")
+        if not Path(file_error_ellipse).is_file():
+            continue
+        if not Path(f"{directory_prefix}cornerplots/{title}.png").is_file():
+            args.append((file, file_error_ellipse, title))
+
+    if config.puls_type == 'pmode':
+        rotname='rotp'
+    else:
+        rotname='rot'
+
+    # Use this backend for matplotlib to make plots via multiprocessing, otherwise the default gives XIO errors
+    matplotlib.use("Agg")
+    with multiprocessing.Pool(config.nr_cpu) as p:
+        func = partial(
+            plot_tools.corner_plot,
+            observations_file=config.observations,
+            fig_output_dir=f"{directory_prefix}cornerplots/",
+            percentile_to_show=0.5,
+            logg_or_logL="logL",
+            n_sigma_box=config.n_sigma_box,
+            grid_parameters=config.grid_parameters,
+            axis_labels_dict=config.cornerplot_axis_labels,
+            rotname=rotname
+        )
+        p.starmap(func, args)
